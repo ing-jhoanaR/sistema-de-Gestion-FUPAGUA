@@ -1,0 +1,53 @@
+{
+  "name": "gestion-fupagua",
+  "version": "1.0.0",
+  "description": "Aplicación de gestión de datos FUPAGUA",
+  "type": "module",
+  "author": "FUPAGUA",
+  "main": "src/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "start": "npx nw .",
+    "package": "nwbuild -v 0.50.0 --platforms win64 .",
+    "postinstall": "npm install --global nw"
+  },
+  "dependencies": {
+    "@fortawesome/free-solid-svg-icons": "^6.7.2",
+    "@fortawesome/react-fontawesome": "^0.2.2",
+    "@tailwindcss/vite": "^4.0.17",
+    "axios": "^1.8.4",
+    "chart.js": "^4.4.8",
+    "emoji-picker-react": "^4.12.2",
+    "framer-motion": "^12.9.2",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^3.0.1",
+    "lucide-react": "^0.503.0",
+    "luxon": "^3.6.1",
+    "pdf-lib": "^1.17.1",
+    "react": "^19.0.0",
+    "react-chartjs-2": "^5.3.0",
+    "react-dom": "^19.0.0",
+    "react-hot-toast": "^2.5.2",
+    "react-icons": "^5.5.0",
+    "react-modal": "^3.16.3",
+    "react-router-dom": "^6.30.0",
+    "react-toastify": "^11.0.5",
+    "recharts": "^2.15.1",
+    "tailwindcss": "^4.0.17",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.21.0",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@vitejs/plugin-react": "^4.3.4",
+    "eslint": "^9.21.0",
+    "eslint-plugin-react-hooks": "^5.1.0",
+    "eslint-plugin-react-refresh": "^0.4.19",
+    "globals": "^15.15.0",
+    "nw": "^0.99.1",
+    "vite": "^6.2.0",
+    "vite-plugin-electron": "^0.11.2"
+  }
+}
