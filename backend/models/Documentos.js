@@ -78,6 +78,13 @@ const DocumentoSchema = new mongoose.Schema(
     },
     historialAcceso: [HistorialAccesoSchema],
     resguardo: ResguardoSchema,
+
+
+    historia: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Historia", 
+    required: true
+},
   },
   {
     timestamps: true,

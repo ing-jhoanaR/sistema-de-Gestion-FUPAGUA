@@ -1,66 +1,65 @@
 const Documento = require("../models/Documentos");
+const Historia = require("../models/Historia"); 
 const HistorialAcceso = require("../models/HistorialAcceso");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
 
+// --- FUNCIONES DE DOCUMENTOS ---
+
 exports.crearDocumento = async (req, res) => {
   const {
     nombreArchivo,
     tipo,
-    tamano,
     clasificacion,
     sensibilidad,
-    propietario,
     permisos,
     resguardo,
+    historiaId,
   } = req.body;
 
-  // Validar campos requeridos
-  if (
-    !nombreArchivo ||
-    !tipo ||
-    !tamano ||
-    !clasificacion ||
-    !sensibilidad ||
-    !propietario
-  ) {
-    return res
-      .status(400)
-      .json({ message: "Todos los campos son requeridos!" });
+  if (!req.file) {
+    return res.status(400).json({ message: "No se cargó el documento!" });
   }
+
+  // FIX: Validar datos obligatorios
+  if (!nombreArchivo || !historiaId) {
+    return res.status(400).json({ message: "Faltan datos obligatorios (Nombre o Carpeta)." });
+  }
+
+  const documentUrl = `${req.protocol}://${req.get("host")}/uploads/${req.file.filename}`;
 
   try {
     const nuevoDocumento = new Documento({
-      nombreArchivo: nombreArchivo, // Asignar el nombre del archivo
+      nombreArchivo,
       tipo,
-      tamano,
-      url: req.file.path, // Asegúrate de que el archivo se haya procesado correctamente
+      tamano: req.file.size,
+      url: documentUrl,
       clasificacion,
-      sensibilidad,
-      propietario,
-      permisos: permisos || [],
-      resguardo: JSON.parse(resguardo),
+      sensibilidad: sensibilidad || "Baja", // Evita error de validación si llega vacío
+      propietario: req.usuario ? req.usuario._id : null, 
+      permisos: permisos ? JSON.parse(permisos) : [],
+      resguardo: resguardo ? JSON.parse(resguardo) : { metodo: "local", estado: "completado" },
+      historia: historiaId, 
     });
 
     const documentoGuardado = await nuevoDocumento.save();
 
+    // Actualizar la historia clínica para que contenga el ID del nuevo documento
+    await Historia.findByIdAndUpdate(historiaId, {
+      $push: { documentos: documentoGuardado._id }
+    });
+
     res.status(201).json(documentoGuardado);
   } catch (error) {
     console.error("Error al crear el documento:", error);
-    res
-      .status(500)
-      .json({ message: "Error al crear el documento!", error: error.message });
+    res.status(500).json({ message: "Error interno del servidor", error: error.message });
   }
 };
 
 exports.obtenerDocumentos = async (req, res) => {
   try {
-    const documentos = await Documento.find().populate(
-      "propietario",
-      "nombre rol"
-    );
-
+    const documentos = await Documento.find().populate("propietario", "nombre rol");
     const documentosConPropietario = documentos.map((doc) => ({
       ...doc._doc,
       propietario: {
@@ -68,22 +67,28 @@ exports.obtenerDocumentos = async (req, res) => {
         rol: doc.propietario ? doc.propietario.rol : "Desconocido",
       },
     }));
-
     res.status(200).json(documentosConPropietario);
   } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Error al obtener documentos!", error: error.message });
+    res.status(500).json({ message: "Error al obtener documentos!", error: error.message });
   }
 };
+
+exports.obtenerDocumentosPorHistoria = async (req, res) => {
+  const { historiaId } = req.params;
+  try {
+    const documentos = await Documento.find({ historia: historiaId })
+      .populate("propietario", "nombre rol");
+    res.status(200).json(documentos);
+  } catch (error) {
+    res.status(500).json({ message: "Error al obtener documentos de esta historia" });
+  }
+};
+
 exports.getDocumentoInfo = async (req, res) => {
   const { id } = req.params;
-
   try {
     const documento = await Documento.findById(id);
-    if (!documento) {
-      return res.status(404).json({ message: "Documento no encontrado!" });
-    }
+    if (!documento) return res.status(404).json({ message: "Documento no encontrado!" });
 
     const updates = {
       ...(req.body.nombreArchivo && { nombreArchivo: req.body.nombreArchivo }),
@@ -94,292 +99,149 @@ exports.getDocumentoInfo = async (req, res) => {
     };
 
     if (req.body.resguardo) {
-      updates.resguardo = {
-        ...(req.body.resguardo.metodo && { metodo: req.body.resguardo.metodo }),
-        ...(req.body.resguardo.frecuencia && {
-          frecuencia: req.body.resguardo.frecuencia,
-        }),
-        ...(req.body.resguardo.estado && { estado: req.body.resguardo.estado }),
-        ...(req.body.resguardo.cifrado && {
-          cifrado: req.body.resguardo.cifrado,
-        }),
-        ...(req.body.resguardo.ultimaFechaRespaldo && {
-          ultimaFechaRespaldo: req.body.resguardo.ultimaFechaRespaldo,
-        }),
-      };
+      documento.resguardo = { ...documento.resguardo, ...req.body.resguardo };
     }
 
     Object.assign(documento, updates);
     await documento.save();
-
-    return res
-      .status(200)
-      .json({ message: "Documento actualizado!", documento });
+    res.status(200).json({ message: "Documento actualizado!", documento });
   } catch (error) {
-    console.error("Error al actualizar el documento:", error);
-    res.status(500).json({
-      message: "Error al buscar o actualizar el documento!",
-      error: error.message,
-    });
+    res.status(500).json({ message: "Error al actualizar!", error: error.message });
   }
 };
+
 exports.eliminarDocumento = async (req, res) => {
   const { id } = req.params;
-
   try {
     const documentoEliminado = await Documento.findByIdAndDelete(id);
-    if (!documentoEliminado) {
-      return res.status(404).json({ message: "Documento no encontrado!" });
-    }
+    if (!documentoEliminado) return res.status(404).json({ message: "Documento no encontrado!" });
     res.status(200).json({ message: "Documento eliminado correctamente!" });
   } catch (error) {
-    console.error("Error al eliminar el documento:", error);
-    res.status(500).json({
-      message: "Error al eliminar el documento!",
-      error: error.message,
-    });
+    res.status(500).json({ message: "Error al eliminar!", error: error.message });
   }
 };
 
 exports.descargarDocumento = async (req, res) => {
-  const { id } = req.params; // Recibir el ID del documento
-
+  const { id } = req.params;
   try {
-    // Busca el documento e incluye el detalle del propietario
     const documento = await Documento.findById(id).populate("propietario");
+    if (!documento || !documento.url) return res.status(404).json({ message: "Archivo no encontrado" });
 
-    if (!documento) {
-      return res.status(404).json({ message: "Documento no encontrado" });
-    }
+    const fileName = path.basename(documento.url);
+    const filePath = path.join(__dirname, "../uploads", fileName);
 
-    if (!documento.url) {
-      return res
-        .status(400)
-        .json({ message: "La URL del archivo no está definida" });
-    }
+    if (!fs.existsSync(filePath)) return res.status(404).json({ message: "Archivo físico no encontrado" });
 
-    // Obtiene el nombre del archivo a partir de la URL
-    const filePath = path.join(
-      __dirname,
-      "../uploads",
-      path.basename(documento.url)
-    ); // Ruta al archivo en el servidor
+    const ext = path.extname(filePath).toLowerCase();
+    const propietario = documento.propietario ? documento.propietario.nombre : "desconocido";
+    const nuevoNombre = `${documento.nombreArchivo || "doc"}-${propietario}${ext}`;
 
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ message: "Archivo no encontrado" });
-    }
-
-    const ext = path.extname(filePath).toLowerCase(); // Obtener la extensión del archivo
-    const fechaActual = new Date();
-    const fechaString = `${fechaActual.getFullYear()}-${String(
-      fechaActual.getMonth() + 1
-    ).padStart(2, "0")}-${String(fechaActual.getDate()).padStart(2, "0")}`;
-
-    const nombreArchivo = documento.nombreArchivo || "documento"; // Nombre por defecto si no se encuentra
-
-    // Acceder al nombre del propietario
-    const propietario = documento.propietario
-      ? documento.propietario.nombre || "desconocido"
-      : "desconocido"; // Obtener el nombre del propietario, asegurando que existe
-
-    // Generar el nuevo nombre del archivo en el formato solicitado
-    const nuevoNombre = `${nombreArchivo}-${propietario}-${fechaString}${ext}`;
-
-    // Determinar el tipo de contenido
-    let contentType;
-    switch (ext) {
-      case ".pdf":
-        contentType = "application/pdf";
-        break;
-      case ".doc":
-        contentType = "application/msword";
-        break;
-      case ".docx":
-        contentType =
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-        break;
-      case ".xls":
-        contentType = "application/vnd.ms-excel";
-        break;
-      case ".xlsx":
-        contentType =
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-        break;
-      case ".jpg":
-      case ".jpeg":
-        contentType = "image/jpeg";
-        break;
-      case ".png":
-        contentType = "image/png";
-        break;
-      default:
-        contentType = "application/octet-stream"; // Tipo de contenido genérico
-    }
-
-    // Enviar la información del documento al cliente
-    return res.status(200).json({
+    res.status(200).json({
       fileName: nuevoNombre,
-      fileType: contentType,
-      fileUrl: `/uploads/${path.basename(documento.url)}`, // Enlace que el frontend usará para descargar el archivo
+      fileUrl: `/uploads/${fileName}`,
     });
   } catch (error) {
-    console.error(error);
-    return res.status(500).json({
-      message: "Error al obtener información del documento",
-      error: error.message,
-    });
+    res.status(500).json({ message: "Error en descarga", error: error.message });
   }
 };
-exports.editarDocumento = async (req, res) => {
-  const { id } = req.params; // Obtener el ID del documento a editar
-  const { nombre, tipo, clasificacion, sensibilidad, permisos } = req.body; // Obtener los nuevos datos del cuerpo de la solicitud
 
-  try {
-    // Busca y actualiza el documento en la base de datos
-    const documento = await Documento.findByIdAndUpdate(
-      id,
-      { nombre, tipo, clasificacion, sensibilidad, permisos },
-      { new: true, runValidators: true } // Devuelve el documento actualizado y valida antes de guardar
-    );
-
-    if (!documento) {
-      return res.status(404).json({ message: "Documento no encontrado" });
-    }
-
-    // Devuelve el documento actualizado
-    res.status(200).json(documento);
-  } catch (error) {
-    console.error("Error al editar el documento:", error);
-    res
-      .status(500)
-      .json({ message: "Error al editar el documento", error: error.message });
-  }
-};
+// --- FUNCIONES DE RESPALDO Y SEGURIDAD ---
 
 exports.respaldarDocumentos = async (req, res) => {
   try {
-    // Obtener todos los documentos
-    const documentos = await Documento.find();
+    const backupDir = path.join(__dirname, "../backups");
+    if (!fs.existsSync(backupDir)) {
+      fs.mkdirSync(backupDir, { recursive: true });
+    }
 
-    // Crear contenido para el respaldo
+    const documentos = await Documento.find();
     const respaldoContent = JSON.stringify(documentos, null, 2);
 
-    // Generar el hash SHA-256 del contenido del respaldo
-    const hash = crypto
-      .createHash("sha256")
-      .update(respaldoContent)
-      .digest("hex");
-
-    // Crear un nombre de archivo único para el respaldo
+    const hash = crypto.createHash("sha256").update(respaldoContent).digest("hex");
     const timestamp = new Date().toISOString().replace(/[-:.]/g, "");
     const backupFileName = `respaldo-${timestamp}.json`;
+    const backupPath = path.join(backupDir, backupFileName);
 
-    // Guardar el respaldo en un archivo local
-    const backupPath = path.join(__dirname, "../backups", backupFileName);
     fs.writeFileSync(backupPath, respaldoContent, "utf-8");
-
-    // Guardar el hash en un archivo separado
     fs.writeFileSync(`${backupPath}.hash`, hash, "utf-8");
 
-    // Actualizar la fecha de respaldo en los documentos
     const fechaActual = new Date();
-    await Documento.updateMany(
-      {},
-      { $set: { "resguardo.ultimaFechaRespaldo": fechaActual } }
-    );
+    await Documento.updateMany({}, { $set: { "resguardo.ultimaFechaRespaldo": fechaActual } });
 
     res.status(200).json({
       message: "Respaldo realizado correctamente",
-      hash: hash,
-      backupFileName: backupFileName,
-      fechaRespaldo: fechaActual, // Incluimos la fecha en la respuesta
+      hash,
+      backupFileName,
+      fechaRespaldo: fechaActual,
     });
   } catch (error) {
-    console.error("Error al realizar el respaldo:", error);
-    res.status(500).json({
-      message: "Error al realizar el respaldo",
-      error: error.message,
-    });
+    res.status(500).json({ message: "Error al realizar el respaldo", error: error.message });
   }
 };
-exports.consultarDocumentos = async (req, res) => {
+
+exports.editarDocumento = async (req, res) => {
+    const { id } = req.params;
+    try {
+        const documento = await Documento.findByIdAndUpdate(id, req.body, { new: true });
+        res.status(200).json(documento);
+    } catch (error) {
+        res.status(500).json({ message: "Error al editar", error: error.message });
+    }
+};
+
+exports.historialAcceso = async (req, res) => {
+    try {
+        const historial = await HistorialAcceso.find().populate("usuario documento");
+        res.status(200).json(historial);
+    } catch (error) {
+        res.status(500).json({ message: "Error al obtener historial" });
+    }
+};
+
+// --- FUNCIONES DE HISTORIA CLÍNICA ---
+
+exports.crearHistoria = async (req, res) => {
   try {
-    // Obtener todos los documentos
-    const documentos = await Documento.find();
+    const ultimo = await Historia.findOne().sort({ numeroHistoria: -1 });
+    const nuevoNumero = ultimo && ultimo.numeroHistoria ? ultimo.numeroHistoria + 1 : 1100;
 
-    // Crear un objeto con la información necesaria
-    const informacion = documentos.map((doc) => ({
-      id: doc._id,
-      nombreArchivo: doc.nombreArchivo,
-      tipo: doc.tipo,
-      clasificacion: doc.clasificacion,
-      sensibilidad: doc.sensibilidad,
-      permisos: doc.permisos,
-      tamano: doc.tamano,
-      propietario: doc.propietario,
-      ultimaFechaRespaldo: doc.resguardo
-        ? doc.resguardo.ultimaFechaRespaldo
-        : null,
-    }));
-
-    res.status(200).json({
-      message: "Documentos consultados correctamente",
-      documentos: informacion,
+    const nuevaHistoria = new Historia({
+      ...req.body,
+      numeroHistoria: nuevoNumero
     });
+
+    await nuevaHistoria.save();
+    res.status(201).json(nuevaHistoria);
   } catch (error) {
-    console.error("Error al consultar documentos:", error);
-    res.status(500).json({
-      message: "Error al consultar documentos",
-      error: error.message,
-    });
+    res.status(500).json({ message: "Error al crear la historia", error: error.message });
   }
 };
+
+exports.obtenerHistorias = async (req, res) => {
+  try {
+    const historias = await Historia.find().populate("documentos");
+    res.status(200).json(historias);
+  } catch (error) {
+    res.status(500).json({ message: "Error al obtener historias" });
+  }
+};
+
+// --- HISTORIAL DE ACCESO ---
 
 exports.registrarHistorialAcceso = async (req, res) => {
   const { documentoId, accion } = req.body;
-  const usuarioId = req.usuario._id;
-
-  // Validaciones
-  if (!documentoId || !accion) {
-    return res.status(400).json({ error: "Faltan datos requeridos." });
-  }
-
-  if (!["descarga", "edicion"].includes(accion)) {
-    return res.status(400).json({ error: "Acción no válida." });
-  }
+  if (!documentoId || !accion) return res.status(400).json({ error: "Faltan datos." });
 
   try {
     const nuevoHistorial = new HistorialAcceso({
-      usuario: usuarioId,
+      usuario: req.usuario._id,
       documento: documentoId,
       accion: accion,
       fecha: new Date(),
     });
-
     await nuevoHistorial.save();
-    return res
-      .status(200)
-      .json({ message: "Historial de acceso registrado correctamente." });
+    res.status(200).json({ message: "Acceso registrado." });
   } catch (error) {
-    console.error(error);
-    return res
-      .status(500)
-      .json({ error: "Error al registrar el historial de acceso." });
-  }
-};
-
-exports.historialAcceso = async (req, res) => {
-  try {
-    const historial = await HistorialAcceso.find()
-      .populate("usuario", "nombre rol")
-      .populate("documento", "nombreArchivo tipo")
-      .sort({ fecha: -1 });
-
-    res.status(200).json(historial);
-  } catch (error) {
-    console.error(error);
-    res
-      .status(500)
-      .json({ mensaje: "Error al obtener el historial de acceso." });
+    res.status(500).json({ error: "Error al registrar historial." });
   }
 };

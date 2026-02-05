@@ -16,11 +16,17 @@ import Documentos from "./pages/Principal/Documentos";
 import Dispositivos from "./pages/Principal/Dispositivos";
 import Personal from "./pages/Principal/Personal";
 
+import EntrevistaPadres from "./pages/PublicForm/EntrevistasPadres";
+
 const App = () => {
   return (
     <UsuarioProvider>
       <Router>
         <Routes>
+          {/* RUTA PÚBLICA PARA REPRESENTANTES */}
+          <Route path="/entrevista-padres/:token" element={<EntrevistaPadres />} />
+
+          {/* RUTAS DE AUTENTICACIÓN Y SISTEMA */}
           <Route path="/" element={<Root />} />
           <Route path="/login" element={<Login />} />
           <Route path="/registro" element={<Registro />} />

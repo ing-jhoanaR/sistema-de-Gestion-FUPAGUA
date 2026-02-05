@@ -3,45 +3,55 @@ const express = require("express");
 const cors = require("cors");
 const path = require("path");
 const fs = require("fs");
-const { spawn } = require("child_process");
 const connectDB = require("./config/bd");
 
+// Importación de Rutas
 const authRoutes = require("./routes/authRoutes");
 const principalRoutes = require("./routes/principalRoutes");
 const documentosRoute = require("./routes/documentosRoutes");
+const entrevistaRoutes = require("./routes/entrevistaRoutes"); // <-- Importación clara
 
 const app = express();
 
-// CORS
+// 1. Configuración de CORS
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || "https://www.fupagua.org",
+    origin: ["https://www.fupagua.org", "http://localhost:5173", "http://localhost:3000"], // Añadí el puerto 3000 por si acaso
     methods: ["GET", "POST", "PATCH", "PUT", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization", "Content-Disposition"],
   })
 );
 
-// Middleware
+// 2. Middlewares de parseo 
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// 3. Conexión a Base de Datos
 connectDB();
 
-// Rutas principales
+// 4. Servir archivos estáticos
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
+// 5. Definición de Rutas de la API
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/principal", principalRoutes);
 app.use("/api/v1/documentos", documentosRoute);
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
-// Ruta raíz para mostrar que el backend está activo
+app.use("/api/entrevistas", entrevistaRoutes); 
+
+// 6. Ruta raíz de prueba
 app.get("/", (req, res) => {
   res.send(`
-    
-    <p>El servidor está corriendo</p>
+    <div style="font-family: sans-serif; text-align: center; margin-top: 50px;">
+      <h1 style="color: #2563eb;">🚀 Backend Fupagua Activo</h1>
+      <p style="color: #64748b;">El servidor está corriendo correctamente.</p>
+    </div>
   `);
 });
 
-// 🌐 Inicializar servidor
+// 7. Inicializar servidor
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
-  console.log(`Servidor corriendo en el puerto ${PORT}`);
+  console.log(`✅ Servidor corriendo en el puerto ${PORT}`);
 });
 
 module.exports = app;
